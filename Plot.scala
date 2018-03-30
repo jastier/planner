@@ -34,10 +34,7 @@ import scala.collection.mutable.ArrayBuffer
 import java.awt.image.BufferedImage
 
 // I accept full blame for mutable state values
-class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelListener with MouseMotionListener{
-
-  // keep some extra layers around just in case
-  var plotLayer: PlotLayer = new PlotLayer(this, 10, 10)
+class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelListener { 
 
   // Define a WCS transform.  See also:  WCSTransform.java
   var cra: Double     = 0.0  // Center right ascension in degrees
@@ -54,12 +51,9 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
   var proj: String  = "-SIN" // Projection 
 
   var wcst = wcsTransform
-  var writer = new PlotWriter(this)
 
-  var dragStart = new Point2D.Double
-  var offset = new Point2D.Double
   var localScale = 1.0
-  var annotate = false
+  var annotate = true
 
   var preset: Option[Preset] = None
   def presetId:Int = if(preset.isDefined)preset.get.presetId else planner.NO_PRESET
@@ -69,6 +63,9 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
 
   /** this gets used by Diva processes to orient themselves in our coordinate system */
   val icc = new ImageCoordinateConverter(this)
+
+  /** background text rarely changes, keep on separate layer */
+  var plotAnnotations = new PlotAnnotations(100, 100, mountPos)
 
   lazy val measureBand = new MeasureBand(this) 
 
@@ -93,36 +90,37 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
     repaint()
   })
 
+  var dragAnchor = new Point2D.Double
+  var offset = new Point2D.Double
+
+  def dragStart(e: MouseEvent): Unit = {
+    dragAnchor.setLocation(e.getX, e.getY)
+  }
+
+  def drag(e: MouseEvent): Unit = {
+    val xPix = e.getX
+    val yPix = e.getY
+    offset.setLocation(offset.x +(xPix - dragAnchor.x), offset.y - (yPix - dragAnchor.y))
+    dragAnchor.setLocation(xPix, yPix)
+  }
+
+
   override def processMouseEvent(e: MouseEvent){
-    if(e.getID == MouseEvent.MOUSE_PRESSED) dragStart.setLocation(e.getX, e.getY)
-
     super.processMouseEvent(e)
-  }
-
-  /** Translates the display */
-  override def mouseDragged (e: MouseEvent): Unit = {
-    if((e.getModifiersEx & BUTTON1_DOWN_MASK) == BUTTON1_DOWN_MASK) {
-      val xPix = e.getX
-      val yPix = e.getY
-      offset.setLocation(offset.x +(xPix - dragStart.x), offset.y - (yPix - dragStart.y))
-      dragStart.setLocation(xPix, yPix)
-      repaint()
-    }
-  }
-
-  override def mouseMoved (e: MouseEvent): Unit = {
-    super.processMouseEvent(e)  // for lack of anything better to do
+    if(e.getID == MouseEvent.MOUSE_PRESSED) dragStart(e)
+    repaint()
   }
 
   override def processMouseMotionEvent(e: MouseEvent){
-    if(e.getID == MouseEvent.MOUSE_DRAGGED)mouseDragged(e)
+    super.processMouseMotionEvent(e)
+    if((e.getModifiersEx & BUTTON1_DOWN_MASK) == BUTTON1_DOWN_MASK) drag(e)
     val xPix = e.getX
     val yPix = getHeight - e.getY
     val radec = wcst.pix2wcs(xPix, yPix)
     if(radec != null) {
       planner.plotFrame.reportCursorPosition(new WorldCoords(radec.x, radec.y))
     }
-    super.processMouseMotionEvent(e)
+    repaint()
   }
 
   /** Scales the display */
@@ -184,32 +182,20 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
     wcst = wcsTransform
   }
 
-  def checkLayers(): Unit = {
-    println("plot.checkLayers")
-    println("  width  = " + getWidth)
-    println("  height = " + getHeight)
-    val w = getWidth
-    val h = getHeight
-    println("  plot width  = " + w)
-    println("  plot height = " + h)
-    println("  checking plot layer...")
-    println("    plotLayer width  = " + plotLayer.getWidth)
-    println("    plotLayer height = " + plotLayer.getHeight)
-    if((plotLayer.getWidth == w) && (plotLayer.getHeight == h)) {
-      println("    Plot layer OK")
-    } else {
-      println("    Plot layer needs updated")
-      plotLayer = new PlotLayer(this, w, h)
-    } 
+  def drawAnnotations(g2d: Graphics2D): Unit = {
+    if((plotAnnotations.getWidth != getWidth) || 
+     (plotAnnotations.getHeight != getHeight)  ||
+     (plotAnnotations.mountPos != mountPos)) {
+       plotAnnotations = new PlotAnnotations(getWidth, getHeight, mountPos)
+    }
+    g2d.drawImage(plotAnnotations, 0, 0, getWidth, getHeight, null)
   }
+
 
   /** DivaGraphics override  */
   override def paintLayer(g2d: Graphics2D, region: Rectangle2D) = synchronized  {
 
     // resize layers if necessary
-    checkLayers()
-    plotLayer.draw
-
     // update the transform before we do anything else
     computeWcsTransform
     val trans = wcsTransform
@@ -221,6 +207,9 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
     g2d.setRenderingHint(KEY_TEXT_ANTIALIASING, VALUE_TEXT_ANTIALIAS_ON)
     super.paintLayer(g2d, region)
 
+    // draw annotations if selected
+    if(annotate) drawAnnotations(g2d)
+
     // draw the highest priority objects last so they are not overwritten
     drawMount(g2d)
 
@@ -228,18 +217,30 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
     val seqs = seqsSx ++ seqsDx
     seqs.foreach(seq => drawSeq(g2d, seq))
 
-    // draw annotations if selected
-    if(annotate) writer.drawAnnotations(g2d, mountPos)
+    // report copoint error if anything isn't copointed 
+    if((seqs.filter(seq => !seq.isCopointed)).nonEmpty) { 
+      val margin = 10 //pixels
+      val oldFont = g2d.getFont
+      val fontSize = 16 // points
+      g2d.setFont(new Font(Font.SANS_SERIF, Font.BOLD, fontSize))
+      val text = "COPOINT"
+      val bounds = g2d.getFontMetrics.getStringBounds(text, g2d)
+      val x: Int = getWidth - bounds.getWidth.toInt - margin
+      val y: Int = getHeight - margin
 
-    // report errors if present
-    if((seqs.filter(seq => !seq.isCopointed)).nonEmpty) writer.copointAdvisory(g2d)
-  
-    // The draw (at least over a VPN connection at home) was much faster without the
-    // buffered image copy.
+      // fill in a black background several extending several pixels around the text
+      g2d.setColor(Color.black)
+      g2d.fillRect(x-2, 
+        y-bounds.getHeight.toInt+2, 
+        bounds.getWidth.toInt+4, 
+        bounds.getHeight.toInt +2)
 
-    // draw layers  (keep in mind these do NOT have to be full size images)
-    g2d.drawImage(plotLayer, offset.x.toInt, -offset.y.toInt, plotLayer.getWidth, plotLayer.getHeight, null)
+      g2d.setColor(Color.red)
+      g2d.drawString(text, x, y)
+      g2d.setFont(oldFont)
+    }
   }
+
 
 
   /** Return the display pixel coordinates for the world coordinates, or None if the

@@ -7,19 +7,9 @@ import java.awt.image.BufferedImage
 // Draw text on the Planner Plot object
 class PlotLayer(plot: Plot, width: Int, height: Int) 
 extends BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB) {
-
-  val g2d: Graphics2D = createGraphics
-
-  def draw(): Unit = {
-
-    g2d.setColor(Color.magenta)
-    var x0 = 0
-    var y0 = 0
-    var x1 = getWidth
-    var y1 = getHeight
-
-    g2d.drawLine(x0,y0,x1,y1)
-    g2d.drawLine(x0,y1,x1,y0)
-  } 
+  val g2d = createGraphics
+  g2d.setColor(Color.magenta)
+  g2d.drawLine(0,0,getWidth,getHeight)
+  g2d.drawLine(0,getHeight,getWidth,0)
 }
 
