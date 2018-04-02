@@ -1,3 +1,6 @@
+
+    setComponentVisible(panelSequence, state)
+    checkBoxSteps.setSelected(state)
 package jsky.app.ot.viewer.planner
 
 import edu.gemini.pot.sp.{ISPObservation, SPComponentType}
@@ -24,7 +27,7 @@ case class LbcSequence(node: ISPObservation) extends InstSequence(node) {
   // First step in the sequence.  Ignore mechanism overheads
   def firstStep(s: LbcStep): LbcStep = {
     val time = tReadout(s) + tOffset(s)
-    new LbcStep(s.node, time, stepText(s), s.config)
+    new LbcStep(s.node, time, stepText(s), s.config, posAngleRadians)
   }
 
   def stepText(s: LbcStep): String = {
@@ -35,7 +38,7 @@ case class LbcSequence(node: ISPObservation) extends InstSequence(node) {
     if(tail.nonEmpty) {
       val s1 = tail.head
       val time = tReadout(s1) + max(tMechanism(s0, s1), tOffset(s0, s1))
-      val newStep = new LbcStep(s1.node, time, s1.text, s1.config)
+      val newStep = new LbcStep(s1.node, time, s1.text, s1.config, posAngleRadians)
       walk(s1, tail.tail, res.:+(newStep))
     } else res
 
@@ -45,8 +48,10 @@ case class LbcSequence(node: ISPObservation) extends InstSequence(node) {
 
   def preset(target: SPTarget): Step = new PresetStep("Preset (Imaging)", 180, target)
 
-  override def steps = timeSteps(ConfigUtil.configs(node).map(c => LbcStep(node, 1, "", c)))
+  override def steps(): List[Step] = { 
+    timeSteps(ConfigUtil.configs(node).map(c => LbcStep(node, 1, "", c, posAngleRadians)))
     if(steps.nonEmpty) steps.+:(preset(target)) else steps
+  }
 }
 
 

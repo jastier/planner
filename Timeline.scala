@@ -92,6 +92,15 @@ class Timeline(val planner: Planner) extends JPanel {
   }.toList
 
 
+  var timelineOnly = false
+
+  def showTimelineOnly(state: Boolean): Unit = {
+    println("Timeline.timelineOnly: " + state)
+    timelineOnly = state
+
+    presets.foreach(preset => preset.showTimelineOnly(state))
+  }
+
   /** Plan the timeline using the the list of presets and a scaling factor */
   def plan(): Int = {
     planner.plotFrame.repaint()

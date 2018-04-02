@@ -7,6 +7,9 @@ import javax.swing.{Box, ButtonGroup, JCheckBoxMenuItem, JMenu, JMenuItem, JMenu
 class MainMenuBar(p: Planner) extends JMenuBar {
 
   val scaleMenu = new ScaleMenu(p)
+  val timelineOnlyMenuToggleItem = 
+    MenuBuilder.menuToggleItem("Show Timeline Only", "Show only Sequence steps", 
+      p.timeline.showTimelineOnly, false)
 
   add(new JMenu("File") {
     add(MenuBuilder.menuItem("Export as Image (*.png)", "Save as a .png image", saveAsPng))
@@ -21,6 +24,7 @@ class MainMenuBar(p: Planner) extends JMenuBar {
     List("LBC", "LUCI", "MODS").foreach(s => add (new JMenuItem(s)))  // fake news
   })
   add(new JMenu("View") {
+      add(timelineOnlyMenuToggleItem)
     add(new JMenu("Presets") {
       add(MenuBuilder.menuItem("Headers On", "Show the preset headers", headersOn))
       add(MenuBuilder.menuItem("Headers Off","Hide the preset headers", headersOff))

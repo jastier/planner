@@ -17,7 +17,6 @@ import edu.gemini.spModel.target.SPTarget
 
 import edu.gemini.skycalc.{Angle, Offset, Coordinates}
 
-import jsky.app.ot.tpe.TpeContext
 import scala.collection.JavaConversions._
 
 import jsky.image.graphics.MeasureBand
@@ -91,7 +90,7 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
   })
 
   var dragAnchor = new Point2D.Double
-  var offset = new Point2D.Double
+  var dragOffset = new Point2D.Double
 
   def dragStart(e: MouseEvent): Unit = {
     dragAnchor.setLocation(e.getX, e.getY)
@@ -100,7 +99,10 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
   def drag(e: MouseEvent): Unit = {
     val xPix = e.getX
     val yPix = e.getY
-    offset.setLocation(offset.x +(xPix - dragAnchor.x), offset.y - (yPix - dragAnchor.y))
+    val dxPix = xPix - dragAnchor.x
+    val dyPix = yPix - dragAnchor.y
+    
+    dragOffset.setLocation(dragOffset.x + dxPix, dragOffset.y - dyPix)
     dragAnchor.setLocation(xPix, yPix)
   }
 
@@ -140,7 +142,7 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
   /** clears the plot points, sets the translation to 0.0 and the scale to 1.0 */
   def reset(): Unit = {
     localScale = 1.0
-    offset.setLocation(0.0, 0.0)
+    dragOffset.setLocation(0.0, 0.0)
     repaint()
   }
 
@@ -164,8 +166,8 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
     nypix = getHeight
 
     // place the mount position at the center of the display
-    xrpix = offset.x + getWidth / 2.0
-    yrpix = offset.y + getHeight / 2.0
+    xrpix = dragOffset.x + getWidth / 2.0
+    yrpix = dragOffset.y + getHeight / 2.0
     cra   = mountPos.getX
     cdec  = mountPos.getY
 
@@ -192,6 +194,8 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
   }
 
 
+  var copointOK: Boolean = true
+
   /** DivaGraphics override  */
   override def paintLayer(g2d: Graphics2D, region: Rectangle2D) = synchronized  {
 
@@ -210,15 +214,19 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
     // draw annotations if selected
     if(annotate) drawAnnotations(g2d)
 
+    copointOK = true
+
     // draw the highest priority objects last so they are not overwritten
     drawMount(g2d)
 
     // draw sequences
     val seqs = seqsSx ++ seqsDx
+
     seqs.foreach(seq => drawSeq(g2d, seq))
 
+
     // report copoint error if anything isn't copointed 
-    if((seqs.filter(seq => !seq.isCopointed)).nonEmpty) { 
+    if(!copointOK) {
       val margin = 10 //pixels
       val oldFont = g2d.getFont
       val fontSize = 16 // points
@@ -285,40 +293,137 @@ class Plot(planner: Planner) extends DivaGraphicsImageDisplay with MouseWheelLis
 
   // return true if the sequence target was within the copointing distance of the mount
   private def drawSeq(g2d: Graphics2D, seq: InstSequence): Unit = {
-    val ctx = TpeContext(seq.observation)
-    val pad = ctx.instrument.get.getPosAngleDegrees
-    val par = toRadians(pad)
-
-    val wc = CopointMath.sequencePosWorldCoords(seq.target)
+    val wc = CopointMath.targetWorldCoords(seq.target)
+    println("Plot.drawSeq")
+    println("  target = " + wc.toString)
+    println("  steps = " + seq.steps.length)
     seq.isCopointed = CopointMath.isCopointed(mountPos, wc)
+
+    if(!seq.isCopointed)copointOK = false;
+
     if(seq.isCopointed) g2d.setColor(Color.yellow) else g2d.setColor(Color.red)
     worldCoordsToPixels(wc).foreach (pix => TpeTargetPosFeature.drawTargetCrosshair(g2d, pix))
 
-    val offsetCopoint = allOffsets(ctx).map(opb => drawOffset(g2d, opb, seq.target, par))
-
-    val badOffsets = offsetCopoint.filter(o => (o == false))
-
-    if(badOffsets.nonEmpty) seq.isCopointed = false
+    // draw the exposure steps as offsets for this sequence
+    drawSeqSteps(g2d, mountPos, seq.target, seq.posAngleRadians, 0, 0, exposureSteps(seq.steps))
   }
 
-  def allOffsets(ctx: TpeContext): List[OffsetPosBase] = {
-    val allSolc = ctx.offsets.allJava.toList
-    val allPos = allSolc.map(solc => solc.posList).flatten
-    OffsetPointingOrigin.updateOffsetBases(allPos)
-    allPos
+  private def exposureSteps(steps: List[Step]): List[ExposureStep] = steps.flatMap {
+    case es: ExposureStep => Some(es)
+    case _ => None
   }
 
-  private def drawOffset(
-      g2d: Graphics2D,
-      opb: OffsetPosBase,
-      target: SPTarget,
-      par: Double): Boolean = {
-    val wc = CopointMath.offsetPosWorldCoords(target, opb, par)
-    opb.setIsCopointed(CopointMath.isCopointed(mountPos, wc))
+  /** draw the offsets.  Keep absorb base current 
+  @param g2d Draw context
+  @param posAngleRadians instrument rotation about focal plane
+  @param xBase the absorbed pointing origin base X term
+  @param yBase the absorbed pointing origin base Y term
+  @param steps all of the steps for this sequence  */
+  private def drawSeqSteps(
+      g2d: Graphics2D, 
+      mountPos: WorldCoords,
+      seqTarget: SPTarget,
+      posAngleRadians: Double, 
+      baseX: Double, 
+      baseY: Double, 
+      steps: List[ExposureStep]): Unit = if(steps.nonEmpty) { 
+
+    val step: ExposureStep = steps.head
+    val xAxis = step.xAxis
+    val yAxis = step.yAxis
+    val src = new Point2D.Double(xAxis, yAxis)
+    val dst = new Point2D.Double(xAxis, yAxis)
+    if(step.isDetxy) {
+      AffineTransform.getRotateInstance(posAngleRadians).transform(src, dst)
+      dst.y *= -1.0
+    }
+    val x = baseX + dst.x
+    val y = baseY + dst.y
+
+    val distance = sqrt(x*x + y*y)
+
+/*
+    println("Plot.drawSeqSteps")
+    println("  baseX  = " + baseX)
+    println("  baseY  = " + baseY)
+    println("  xAxis  = " + xAxis)
+    println("  yAxis  = " + yAxis)
+    println("  x      = " + x)
+    println("  y      = " + y)
+    println("  coords = " + step.coords)
+    println("  absorb = " + step.absorb)
+    println("  angle  = " + toDegrees(posAngleRadians))
+    println("  dist   = " + distance)
+
+*/
+
+    val targetCoordinates = seqTarget.getSkycalcCoordinates
+    val xDeg = targetCoordinates.getRaDeg
+    val yDeg = targetCoordinates.getDecDeg
+
+    val stepPos = new WorldCoords(xDeg, yDeg)
     
-    worldCoordsToPixels(wc).foreach (pix => drawPoint(g2d, pix, opb.getIsCopointed))
+    worldCoordsToPixels(stepPos).foreach(pix => {
+      val xPix = pix.x + x/xsecpix
+      val yPix = pix.y - y/ysecpix
 
-    opb.getIsCopointed
+      val offsetPosPoint = wcst.pix2wcs(xPix, yPix)
+      val offsetPos= new WorldCoords(offsetPosPoint.x, offsetPosPoint.y)
+      step.setCopointed(CopointMath.isCopointed(mountPos, offsetPos))
+
+      if(!step.isCopointed) copointOK = false
+      
+      // we now take the distance between the mount and the offset world coordinates,
+      // this is our copointing distance
+
+      drawPoint(g2d, new Point2D.Double(xPix, yPix), step.isCopointed)
+    })
+
+
+/*
+    val mountRaDeg = mountPos.getRaDeg
+    val mountDecDeg = mountPos.getDecDeg
+
+    val targetCoordinates = seqTarget.getSkycalcCoordinates
+    val targetRaDeg = targetCoordinates.getRaDeg
+    val targetDecDeg = targetCoordinates.getRaDeg
+
+    val dRaDeg = targetRaDeg - mountRaDeg
+    val dDecDeg = targetDecDeg - mountDecDeg
+
+    val stepRaDeg = x * CopointMath.DEGREES_PER_ARCSECOND
+    val stepDecDeg = y * CopointMath.DEGREES_PER_ARCSECOND
+
+    val dRaDeg = (targetRaDeg + stepRaDeg)-mountRaDeg
+    val dDecDeg = (targetDecDeg + stepDecDeg)-mountDecDeg
+
+    
+
+    worldCoordsToPixels(mountPos).foreach(pix => {
+      val xPix = pix.x + dRaDeg/CopointMath.DEGREES_PER_ARCSECOND/xsecpix
+      val yPix = pix.y + dRaDeg/CopointMath.DEGREES_PER_ARCSECOND/ysecpix
+      drawPoint(g2d, new Point2D.Double(xPix, yPix), step.isCopointed)
+    })
+
+
+    val targetCoordinates = seqTarget.getSkycalcCoordinates
+    val xDeg = targetCoordinates.getRaDeg - (x * CopointMath.DEGREES_PER_ARCSECOND)
+    val yDeg = targetCoordinates.getDecDeg - (y * CopointMath.DEGREES_PER_ARCSECOND)
+
+    val stepPos = new WorldCoords(xDeg, yDeg)
+
+//    step.isCopointed = CopointMath.isCopointed(mountPos, stepPos)
+
+    worldCoordsToPixels(stepPos).foreach (pix => {
+      val xPix = pix.x + x/xsecpix
+      val yPix = pix.y - y/ysecpix
+      //drawPoint(g2d, new Point2D.Double(xPix, yPix), step.isCopointed)
+      drawPoint(g2d, pix, step.isCopointed)
+    })
+*/
+
+    if(step.absorb) drawSeqSteps(g2d, mountPos, seqTarget, posAngleRadians, x, y, steps.tail)
+    else  drawSeqSteps(g2d, mountPos, seqTarget, posAngleRadians, baseX, baseY, steps.tail)
   }
 
   private def drawPoint(g2d: Graphics2D, pixelPos: Point2D.Double, isCopointed: Boolean): Unit = {

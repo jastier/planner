@@ -21,14 +21,14 @@ case class ModsSequence (node: ISPObservation) extends InstSequence(node) {
   // First step in the sequence.  Ignore mechanism overheads
   def firstStep(s: ModsStep): ModsStep = {
     val time = tReadout(s) + tOffset(s)
-    new ModsStep(s.node, time, s.config)
+    new ModsStep(s.node, time, s.config, posAngleRadians)
   }
 
   def walk(s0: ModsStep, tail: List[ModsStep], res: List[ModsStep]): List[ModsStep] = 
     if(tail.nonEmpty) {
       val s1 = tail.head
       val time = tReadout(s1) + max(tMechanism(s0, s1), tOffset(s0, s1))
-      val newStep = new ModsStep(s1.node, time, s1.config)
+      val newStep = new ModsStep(s1.node, time, s1.config, posAngleRadians)
       walk(s1, tail.tail, res.:+(newStep))
     } else res
 
@@ -38,8 +38,10 @@ case class ModsSequence (node: ISPObservation) extends InstSequence(node) {
 
   def preset(target: SPTarget): Step = new PresetStep("Preset (Imaging)", 180, target)
 
-  override def steps = timeSteps(ConfigUtil.configs(node).map(c => ModsStep(node, 1, c)))
+  override def steps = {
+    timeSteps(ConfigUtil.configs(node).map(c => ModsStep(node, 1, c, posAngleRadians)))
     if(steps.nonEmpty) steps.+:(preset(target)) else steps
+  }
 }
 
 

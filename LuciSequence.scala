@@ -50,7 +50,7 @@ case class LuciSequence(node: ISPObservation) extends InstSequence (node) {
   // First step in the sequence.  Ignore mechanism overheads
   def firstStep(s: LuciStep): LuciStep = {
     val time = tReadout(s) + tOffset(s)
-    new LuciStep(s.node, time, stepText(s), s.config)
+    new LuciStep(s.node, time, stepText(s), s.config, posAngleRadians)
   }
 
   def stepText(s: LuciStep): String = {
@@ -61,7 +61,7 @@ case class LuciSequence(node: ISPObservation) extends InstSequence (node) {
     if(tail.nonEmpty) {
       val s1 = tail.head
       val time = tReadout(s1) + max(tMechanism(s0, s1), tOffset(s0, s1))
-      val newStep = new LuciStep(s1.node, time, s1.text, s1.config)
+      val newStep = new LuciStep(s1.node, time, s1.text, s1.config, posAngleRadians)
       walk(s1, tail.tail, res.:+(newStep))
     } else res
 
@@ -72,7 +72,8 @@ case class LuciSequence(node: ISPObservation) extends InstSequence (node) {
 
   // weaksauce, use extractor pattern
   override def steps = {
-    val timedSteps = timeSteps(ConfigUtil.configs(node).map(c => LuciStep(node, 1, "", c)))
+    val timedSteps = 
+      timeSteps(ConfigUtil.configs(node).map(c => LuciStep(node, 1, "", c, posAngleRadians)))
     if(timedSteps.nonEmpty) {
       timedSteps.head.mask match {
         case Luci.MASK_NONE_NAME => ImagingSequence(target, timedSteps, oh)

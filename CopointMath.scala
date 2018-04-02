@@ -4,20 +4,18 @@ import edu.gemini.skycalc.Angle.Unit._
 import edu.gemini.skycalc.{Angle, Offset, Coordinates}
 
 import edu.gemini.spModel.target.offset.OffsetPosBase
-import edu.gemini.spModel.target.offset.OffsetPointingOrigin
 import jsky.app.ot.tpe.TpeContext
 
 import scala.collection.JavaConversions._
 
 import edu.gemini.spModel.target.SPTarget
-import edu.gemini.spModel.target.system.ICoordinate
 
 import jsky.coords.{DMS, HMS, WorldCoords}
 
 import edu.gemini.skycalc.CoordinateDiff
 
-
 import java.awt.geom.{AffineTransform, Point2D, Rectangle2D}
+
 import scala.math._
 
 
@@ -27,37 +25,31 @@ object CopointMath {
   val COPOINT_RADIUS_ARCSEC = 40.0
   val DEGREES_PER_ARCSECOND = 0.000277778
 
+  // pixels in this case being the size of the copointing circle on the display
   def arcsecondsPerPixel(pixels: Int): Double = {
     if(pixels > 0) COPOINT_RADIUS_ARCSEC*2.0 / pixels
     else 1.0
   }
 
-  def isCopointed(mount: WorldCoords, offset: WorldCoords): Boolean = {
-    val diff = new CoordinateDiff(mount.getX, mount.getY, offset.getX, offset.getY)
+  def isCopointed(wc1: WorldCoords, wc2: WorldCoords): Boolean = {
+    val diff = new CoordinateDiff(wc1.getX, wc1.getY, wc2.getX, wc2.getY)
     diff.getDistance.getMagnitude <= COPOINT_RADIUS_ARCSEC
   }
-     
 
   /** return the Sequence target position in world coords  */
-  def sequencePosWorldCoords(target: SPTarget): WorldCoords = {
+  def targetWorldCoords(target: SPTarget): WorldCoords = {
     val targetCoordinates = target.getSkycalcCoordinates
     val raDeg = targetCoordinates.getRaDeg
     val decDeg = targetCoordinates.getDecDeg
     new WorldCoords(raDeg, decDeg)
   }
 
-  /** return the offset position in world coords  */
-  def offsetPosWorldCoords(target: SPTarget, opb: OffsetPosBase, par: Double): WorldCoords = {
-    val baseRadec = opb.getBaseRadec
-    val baseDetxy = opb.getBaseDetxy
-    val poRadec = opb.getPoRadec
-    val poDetxy = opb.getPoDetxy
-
-    val pt = new Point2D.Double(poDetxy.x, poDetxy.y)
-
-    AffineTransform.getRotateInstance(par).transform(pt,pt)
-    val x = poRadec.x + pt.x
-    val y = poRadec.y + pt.y
+  /** return an offset from a SPTarget in world coords
+  @param target The sequence target
+  @param x The RA Distance from the target in arcseconds
+  @param y The Dec Distance from the target in arcseconds
+  */
+  def targetOffsetWorldCoords(target: SPTarget, x: Double, y: Double): WorldCoords = {
 
     val angleRa  = new Angle(x, ARCSECS)
     val angleDec = new Angle(y, ARCSECS)
@@ -65,19 +57,15 @@ object CopointMath {
     val angleRaDeg  = angleRa.convertTo(DEGREES).getMagnitude
     val angleDecDeg = angleDec.convertTo(DEGREES).getMagnitude
 
+    val offset: SPTarget = new SPTarget(angleRaDeg, angleDecDeg)
+
     val targetCoordinates = target.getSkycalcCoordinates
+    val offsetCoordinates = offset.getSkycalcCoordinates
 
-    if (opb.isDetxy){
-      val raDeg = targetCoordinates.getRaDeg + angleRaDeg
-      val decDeg = targetCoordinates.getDecDeg - angleDecDeg
-      new WorldCoords(raDeg, decDeg)
-    }
+    val raDeg = targetCoordinates.getRaDeg + angleRaDeg
+    val decDeg = targetCoordinates.getDecDeg + angleDecDeg
 
-    else {
-      val raDeg = targetCoordinates.getRaDeg + angleRaDeg
-      val decDeg = targetCoordinates.getDecDeg + angleDecDeg
-      new WorldCoords(raDeg, decDeg)
-    } 
+    new WorldCoords(raDeg, decDeg)
   }
 
 

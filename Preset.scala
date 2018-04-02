@@ -34,7 +34,7 @@ class Preset (val timeline: Timeline, val presetId: Int) extends PopupMenuPanel 
   var mountPos: WorldCoords = new WorldCoords
 
   /** Show the mount position as it would be calculated by the TCS */
-  val labelMountPos = new JLabel("Synchronous Preset")
+  val labelMountPos = new JLabel(mountPos.toString)
   val textFieldTitle = new JTextField("Synchronous Preset")
 
   val buttonPlot = new JButton("Plot") {
@@ -66,6 +66,23 @@ class Preset (val timeline: Timeline, val presetId: Int) extends PopupMenuPanel 
   val panelCopointStatus = new PresetCopointStatus
   val panelHeader = new PresetHeader(this)
   val panelSequence = new TransientComponentPanel
+
+
+  def showTimelineOnly(state: Boolean): Unit = {
+    if(state) {
+      panelPreset.setVisible(false)
+      panelHeader.setVisible(false)
+      panelSequence.setVisible(true)
+    }
+    else {
+      panelPreset.setVisible(true)
+      panelHeader.setVisible(checkBoxObs.isSelected)
+      panelSequence.setVisible(checkBoxSteps.isSelected)
+    }
+
+    revalidate
+    repaint()
+  }
 
   /** Returns the title for this Preset */
   def title(): String = textFieldTitle.getText
@@ -170,8 +187,8 @@ class Preset (val timeline: Timeline, val presetId: Int) extends PopupMenuPanel 
 
   setBorder(new LineBorder(Color.black, 3))
 
-  // always visible
-  add(new JPanel{ 
+  // topmost controls
+  val panelPreset = new JPanel {
     setInheritsPopupMenu(true)
     setLayout(new GridLayout(1,4))
 
@@ -195,10 +212,13 @@ class Preset (val timeline: Timeline, val presetId: Int) extends PopupMenuPanel 
 
     // fourth quearter
     add(panelTimeStatus)
-  }, new GridBagConstraints{
+  }
+
+  add(panelPreset, new GridBagConstraints{
     weightx = 1.0
     fill = HORIZONTAL
   })
+
       
   // optional visibility observation panel
   add(panelHeader, new GridBagConstraints{

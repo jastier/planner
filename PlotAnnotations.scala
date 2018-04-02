@@ -51,7 +51,7 @@ class PlotAnnotations(
     val x: Int = margin
     val y: Int = height - margin
     g2d.setColor(Color.cyan)
-    g2d.drawString(mountPos.toString, x, y)
+    g2d.drawString("Mount: " + mountPos.toString, x, y)
   }
 }
 

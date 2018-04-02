@@ -5,6 +5,7 @@ import edu.gemini.pot.sp.SPComponentType._
 import edu.gemini.spModel.config2.{Config, ConfigSequence}
 import edu.gemini.spModel.config.ConfigBridge
 import edu.gemini.spModel.config.map.ConfigValMapInstances
+import edu.gemini.spModel.data.ISPDataObject
 import edu.gemini.spModel.target.env.TargetEnvironment
 import edu.gemini.spModel.target.obsComp.TargetObsComp
 import edu.gemini.spModel.target.SPTarget
@@ -12,11 +13,14 @@ import edu.gemini.spModel.util.SPTreeUtil
 import java.awt.geom.Point2D
 import java.util.HashMap
 import scala.collection.JavaConversions._
+import edu.gemini.pot.sp.SPComponentBroadType
+import edu.gemini.spModel.data.AbstractDataObject
+import edu.gemini.spModel.obscomp.SPInstObsComp
 
 // Immutable
 
 /** A "Sequence", for planning purposes, is a single observation block */
-object TargetingComputer {
+object Target {
   def apply(node: ISPObservation): SPTarget = 
     Option(node.getObsComponents.toList) map searchObsComps getOrElse new SPTarget
 
@@ -26,6 +30,22 @@ object TargetingComputer {
   def target(oc: ISPObsComponent): SPTarget =
     oc.getDataObject.asInstanceOf[TargetObsComp].getTargetEnvironment.getBase
 }
+
+
+object PosAngleRadians{
+
+  def toInstruments(node: ISPObservation): List[SPInstObsComp] =
+    node.getObsComponents.toList.map(oc => oc.getDataObject match {
+      case obj: SPInstObsComp => Some(obj)
+      case _ => None
+    }).flatten
+
+  def toPosAngleRadians(instruments: List[SPInstObsComp]): Double = if(instruments.isEmpty) 0.0
+    else instruments.head.getPosAngleRadians
+
+  def apply(node: ISPObservation): Double = toPosAngleRadians(toInstruments(node))
+}
+
 
 trait Sequence {
   def title: String
@@ -50,15 +70,17 @@ case class GenericSequence(title: String, steps: List[Step]) extends Sequence
 abstract class InstSequence(node: ISPObservation) extends Sequence {
   var isCopointed = true
 
+  def posAngleRadians: Double = PosAngleRadians(node)
+
   def observation(): ISPObservation = node
 
   def tOffset(x: Double, y: Double): Int = if((x != 0) || (y != 0)) 14 else 0
 
-  def tOffset(s: ExposureStep): Int = tOffset(s.x, s.y)
+  def tOffset(s: ExposureStep): Int = tOffset(s.xAxis, s.yAxis)
 
-  def tOffset(s0: ExposureStep, s1: ExposureStep): Int = tOffset(s1.x - s0.x, s1.y - s0.y)
+  def tOffset(s0: ExposureStep, s1: ExposureStep): Int = tOffset(s1.xAxis - s0.xAxis, s1.yAxis - s0.yAxis)
 
-  override def target = TargetingComputer(node)
+  override def target = Target(node)
 
   override def title = "[" + node.getObservationNumber() + "] " + node.getDataObject().getTitle()
 }

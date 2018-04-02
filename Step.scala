@@ -33,23 +33,42 @@ abstract class Step {
 
 
 /** An open shutter step */
-abstract class ExposureStep(node: ISPNode, c: Config) extends Step {
-  println("\nSTEP:")
-    println(ConfigUtil.configToText(c))
+abstract class ExposureStep(node: ISPNode, c: Config, val posAngleRadians: Double) extends Step {
 
-  def instrument = ConfigUtil.string(c, new ItemKey("instrument:instrument"))
+  // I need a way to propagate the status back to the UI
+  var isCopointed: Boolean = true
 
-  def x = ConfigUtil.double(c, new ItemKey("telescope:xaxis"))
+  def setCopointed(state: Boolean): Unit = {
+    isCopointed = state
+    
+//  println("\nSTEP:")
+//    println(ConfigUtil.configToText(c))
 
-  def y = ConfigUtil.double(c, new ItemKey("telescope:yaxis"))
+  val instrumentKey = new ItemKey("instrument:instrument")
+  val xAxisKey =  new ItemKey("telescope:xaxis")
+  val yAxisKey =  new ItemKey("telescope:yaxis")
+  val absorbKey = new ItemKey("telescope:updatePointingOrigin")
+  val coordsKey = new ItemKey("telescope:coords")
+  val stepNumberKey = new ItemKey("metadata:stepcount")
+  val obsClassKey = new ItemKey("observe:class")
 
-  def coords = ConfigUtil.string(c,new ItemKey("telescope:coords"))  // RADEC or DETXY
+  def instrument(): String = ConfigUtil.string(c, instrumentKey)
 
-  def stepNumber = ConfigUtil.int(c, new ItemKey("metadata:stepcount"))
+  def xAxis(): Double = ConfigUtil.double(c, xAxisKey)
 
-  def obsClass = ConfigUtil.string(c, new ItemKey("observe:class"))
+  def yAxis(): Double = ConfigUtil.double(c, yAxisKey)
 
-  def obsClassText = if(obsClass == "") "" else obsClass + ", "
+  def absorb(): Boolean = "Y".equals(ConfigUtil.string(c, absorbKey))
+
+  def coords(): String = ConfigUtil.string(c, coordsKey)  // will be "RADEC" or "DETXY"
+
+  def stepNumber(): Int = ConfigUtil.int(c, stepNumberKey)
+
+  def obsClass(): String = ConfigUtil.string(c, obsClassKey)
+
+  def obsClassText(): String = if(obsClass == "") "" else obsClass + ", "
+
+  def isDetxy(): Boolean = "DETXY".equals(coords)
 
   override def mouseClicked(): Unit = PlannerManager.message(ConfigUtil.configToText(c))
 
@@ -57,7 +76,8 @@ abstract class ExposureStep(node: ISPNode, c: Config) extends Step {
   override val isExposure = true
   override val isScience = List("tscience", "scal", "science").contains(obsClass)
   override val isAcquisition = List("acq", "tacq", "sacq").contains(obsClass)
-  override val color = if(isAcquisition) Color.cyan else Color.lightGray
+  override val color = if(!isCopointed) Color.red else {
+    if(isAcquisition) Color.cyan else Color.lightGray }
 }
 
 
@@ -84,8 +104,9 @@ case class LbcStep (
     node: ISPNode,
     override val seconds: Int,
     toolTip: String,
-    config: Config)
-  extends ExposureStep (node, config) {
+    config: Config,
+    override val posAngleRadians: Double)
+  extends ExposureStep (node, config, posAngleRadians) {
   lazy val exposureTime = ConfigUtil.double(config,
     new ItemKey("instrument:exposureTime")).toInt
   lazy val camera: String = ConfigUtil.string(config, new ItemKey("instrument:camera"))
@@ -97,8 +118,9 @@ case class LuciStep (
     node: ISPNode,
     override val seconds: Int,
     toolTip: String,
-    config: Config)
-  extends ExposureStep (node, config) {
+    config: Config,
+    override val posAngleRadians: Double)
+  extends ExposureStep (node, config, posAngleRadians) {
   val mask: String = ConfigUtil.string(config, new ItemKey("instrument:mask")) 
   val maskPos: String = ConfigUtil.string(config, new ItemKey("instrument:maskPos")) 
   val nDit: Double = ConfigUtil.double(config, new ItemKey("instrument:nDit"))
@@ -120,9 +142,11 @@ case class LuciStep (
 case class ModsStep (
     node: ISPNode, 
     override val seconds: Int,
-    config: Config) 
-  extends ExposureStep (node, config) {
+    config: Config,
+    override val posAngleRadians: Double) 
+  extends ExposureStep (node, config, posAngleRadians) {
   val redExposureTime = ConfigUtil.double(config, new ItemKey("instrument:redExpTime"))
   val blueExposureTime = ConfigUtil.double(config, new ItemKey("instrument:blueExpTime"))
 }
+
 
